@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#14243f" />
+  <title>渠道埋点运营后台 · 网页 Demo</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus@2.9.3/dist/index.css" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" v-cloak></div>
+
+  <script type="text/x-template" id="app-template">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">C</span><span>渠道追踪后台</span></div>
+        <div class="side-caption">运营工作区</div>
+        <nav class="side-nav" aria-label="主导航">
+          <button type="button" :class="{ active: activePage === 'links' }" @click="switchPage('links')">
+            <el-icon><Connection /></el-icon><span>链接管理</span>
+          </button>
+          <button type="button" :class="{ active: activePage === 'data' }" @click="switchPage('data')">
+            <el-icon><DataAnalysis /></el-icon><span>追踪数据</span>
+          </button>
+        </nav>
+        <div class="side-bottom">生成投放链接，查看渠道效果。<br />此页面为静态交互演示。</div>
+      </aside>
+
+      <div class="main-shell">
+        <header class="topbar">
+          <span>渠道运营</span><span>/</span><strong>{{ activePage === 'links' ? '链接管理' : '追踪数据' }}</strong>
+          <span class="topbar-spacer"></span>
+          <span class="topbar-status"><i class="status-dot"></i>演示数据 · 当前浏览器保存</span>
+        </header>
+
+        <main class="page-content">
+          <section v-if="activePage === 'links'" aria-label="链接管理">
+            <div class="page-heading">
+              <div>
+                <h1>渠道埋点链接</h1>
+                <p>粘贴原始网址，填写链接名称，选择渠道和投放位置，生成可复制的投放链接。</p>
+              </div>
+              <div class="heading-actions">
+                <el-button plain @click="scrollToConfig"><el-icon><Setting /></el-icon>管理渠道与位置</el-button>
+              </div>
+            </div>
+            <div class="page-notice">
+              <el-icon><InfoFilled /></el-icon>
+              <span><strong>静态演示</strong>：生成的链接和配置仅保存在当前浏览器。活动 ID 只保存并展示，不写入 URL；真实访问采集需部署服务。</span>
+            </div>
+
+            <div class="create-grid">
+              <section class="panel create-panel" aria-labelledby="create-title">
+                <div class="panel-head"><div class="panel-title" id="create-title">生成新链接</div><span class="panel-meta">* 为必填</span></div>
+                <div class="panel-body">
+                  <layout-form ref="createFormRef" v-model="createModel" :form-list="createFormItems" label-width="110px" @change-val="onCreateChange">
+                    <template #ai_activityId="{ data }">
+                      <el-input :model-value="data.ai_activityId" readonly placeholder="填写链接名称后自动生成"></el-input>
+                    </template>
+                  </layout-form>
+                  <div class="activity-id-note"><el-icon><Lock /></el-icon>同名活动跨渠道共用活动 ID，不能手动修改。</div>
+                  <div class="form-footer">
+                    <small>原网址的其他参数会保留；已有渠道归因参数按本次选择更新。</small>
+                    <el-button type="primary" :loading="generating" @click="generateLink"><el-icon><Link /></el-icon>生成埋点链接</el-button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel result-panel" aria-labelledby="result-title">
+                <div class="panel-head"><div class="panel-title" id="result-title">生成结果</div><span v-if="lastGenerated" class="status-pill">已保存</span></div>
+                <div class="panel-body">
+                  <div v-if="!lastGenerated" class="result-empty">
+                    <div class="result-empty-icon"><el-icon><Link /></el-icon></div>
+                    <strong>新链接会显示在这里</strong>
+                    <span>完成左侧信息后，即可复制投放链接。</span>
+                  </div>
+                  <div v-else class="result-ready">
+                    <div class="result-success"><el-icon><CircleCheckFilled /></el-icon>埋点链接已生成</div>
+                    <div class="result-kv">
+                      <span class="key">链接名称</span><span class="value">{{ lastGenerated.ai_name }}</span>
+                      <span class="key">活动 ID</span><span class="value">{{ lastGenerated.ai_activityId }}</span>
+                      <span class="key">渠道位置</span><span class="value">{{ lastGenerated.ai_channelName }} · {{ lastGenerated.ai_mediumName }}</span>
+                    </div>
+                    <div class="result-link-label">带埋点的完整链接</div>
+                    <div class="result-url" data-testid="generated-url">{{ lastGenerated.ai_url }}</div>
+                    <div class="result-actions">
+                      <el-button type="primary" @click="copyLink(lastGenerated.ai_url)"><el-icon><DocumentCopy /></el-icon>复制链接</el-button>
+                      <el-button plain @click="openLink(lastGenerated.ai_url)">打开链接</el-button>
+                    </div>
+                    <div class="result-foot">活动 ID 仅用于后台归并同名活动，不会出现在上方 URL 中。</div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="secondary-grid">
+              <section class="panel" id="channel-config" aria-labelledby="config-title">
+                <div class="panel-head">
+                  <div><div class="panel-title" id="config-title">投放渠道与位置配置</div><div class="panel-subtitle">维护投放代码，生成新链接时直接选择。</div></div>
+                  <el-button type="primary" plain @click="openChannelDialog()"><el-icon><Plus /></el-icon>新增渠道</el-button>
+                </div>
+                <div class="table-host">
+                  <list-table :table-data="channelRows" :table-list="channelTableList" :table-option="channelTableOption" :loading="configLoading">
+                    <template #ai_sourceCode="{ row }"><span class="code-pill">{{ row.ai_sourceCode }}</span></template>
+                    <template #ai_mediumText="{ row }">
+                      <div class="config-summary">
+                        <span v-for="position in row.ai_positions" :key="position.ai_code" class="code-pill" :class="{ muted: !position.ai_active }" :title="position.ai_name">{{ position.ai_code }}</span>
+                      </div>
+                    </template>
+                    <template #ai_activeText="{ row }"><span class="status-pill" :class="{ off: !row.ai_active }">{{ row.ai_active ? '启用' : '停用' }}</span></template>
+                    <template #operate="{ row }"><button type="button" class="table-action" @click="openChannelDialog(row)">编辑</button></template>
+                  </list-table>
+                </div>
+                <div class="table-note">配置变更只作用于后续新链接；历史链接保留创建时的参数。</div>
+              </section>
+
+              <section class="panel" aria-labelledby="history-title">
+                <div class="panel-head">
+                  <div class="history-title"><div class="panel-title" id="history-title">历史埋点链接</div><span class="count-tag">{{ links.length }} 条</span></div>
+                  <span class="panel-meta">可搜索、查看和复制</span>
+                </div>
+                <div class="filter-box search-panel--single-select">
+                  <search-form v-model:search-param="historySearch" :search-list="historySearchItems" @search="applyHistorySearch" @reset="resetHistorySearch"></search-form>
+                </div>
+                <div class="table-host">
+                  <list-table :table-data="historyVisible" :table-list="historyTableList" :table-option="historyTableOption" :page-option="historyPage" :loading="historyLoading" @handle-current-change="onHistoryPageChange" @handle-size-change="onHistorySizeChange">
+                    <template #ai_name="{ row }"><span class="table-primary">{{ row.ai_name }}</span><span class="table-secondary">{{ row.ai_activityId }}</span></template>
+                    <template #operate="{ row }">
+                      <button type="button" class="table-action" @click="openLinkDetail(row)">详情</button>
+                      <button type="button" class="table-action" @click="copyLink(row.ai_url)">复制</button>
+                    </template>
+                  </list-table>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section v-else aria-label="追踪数据">
+            <div class="page-heading">
+              <div><h1>追踪数据</h1><p>按全部、单个或多个活动汇总，结合日历日期查看渠道效果。</p></div>
+              <div class="heading-actions"><el-button type="primary" plain :disabled="!reportSelectionValid" @click="exportExcel"><el-icon><Download /></el-icon>导出 Excel</el-button></div>
+            </div>
+            <div class="page-notice">
+              <el-icon><InfoFilled /></el-icon>
+              <span><strong>演示数据</strong>：访问量和转化 UID 均为虚构样例；新建链接不会自动产生真实追踪数据。接入采集服务后才可查看真实效果。</span>
+            </div>
+
+            <section class="panel query-panel" aria-label="数据查询条件">
+              <div class="filter-box search-panel--single-select">
+                <search-form v-model:search-param="reportSearch" :search-list="reportSearchItems" :is-btn-separate="true" :show-all="true" @change-val="onReportChange" @search="applyReportSearch" @reset="resetReportSearch"></search-form>
+              </div>
+              <div class="query-foot"><span class="scope-summary">{{ reportScopeSummary }}</span><span>统计区间：{{ reportApplied.ai_dateRange.join(' 至 ') }}</span></div>
+            </section>
+
+            <div class="metric-grid">
+              <div class="metric-card"><div class="metric-label">访问量 PV</div><div class="metric-value">{{ formatNumber(reportTotal.ai_pv) }}</div><div class="metric-note">当前活动与日期范围</div></div>
+              <div class="metric-card"><div class="metric-label">转化 UID</div><div class="metric-value">{{ formatNumber(reportTotal.ai_uid) }}</div><div class="metric-note">演示口径，按链接汇总</div></div>
+              <div class="metric-card"><div class="metric-label">转化率</div><div class="metric-value">{{ reportTotal.ai_rate }}</div><div class="metric-note">转化 UID / 访问量 PV</div></div>
+              <div class="metric-card"><div class="metric-label">投放链接</div><div class="metric-value">{{ reportTotal.ai_linkCount }}</div><div class="metric-note">当前范围内的链接数</div></div>
+            </div>
+
+            <div class="report-grid">
+              <section class="panel" aria-labelledby="share-title">
+                <div class="panel-head"><div class="panel-title" id="share-title">渠道访问占比</div><span class="panel-meta">按 PV 计算</span></div>
+                <div v-if="reportTotal.ai_pv > 0" class="share-list">
+                  <div v-for="row in channelReportRows" :key="row.ai_sourceCode" class="share-row">
+                    <span class="share-name" :title="row.ai_channelName">{{ row.ai_channelName }}</span>
+                    <div class="share-track"><div class="share-fill" :style="{ width: row.ai_share + '%' }"></div></div>
+                    <span class="share-percent">{{ row.ai_share }}%</span>
+                  </div>
+                </div>
+                <div v-else class="share-empty">当前筛选范围没有访问数据</div>
+              </section>
+              <section class="panel" aria-labelledby="definition-title">
+                <div class="panel-head"><div class="panel-title" id="definition-title">当前查询</div><span class="panel-meta">同名活动跨渠道汇总</span></div>
+                <div class="definition-list">
+                  <div><span>活动范围</span><strong>{{ reportScopeSummary }}</strong></div>
+                  <div><span>开始日期</span><strong>{{ reportApplied.ai_dateRange[0] || '—' }}</strong></div>
+                  <div><span>结束日期</span><strong>{{ reportApplied.ai_dateRange[1] || '—' }}</strong></div>
+                  <div><span>数据来源</span><strong>本地虚构示例数据</strong></div>
+                </div>
+              </section>
+            </div>
+
+            <section class="panel report-detail" aria-labelledby="report-detail-title">
+              <div class="panel-head">
+                <div class="panel-title" id="report-detail-title">效果明细</div>
+                <div class="tab-switch" role="tablist" aria-label="明细维度">
+                  <button type="button" role="tab" :aria-selected="reportView === 'channel'" :class="{ active: reportView === 'channel' }" @click="reportView = 'channel'">按渠道</button>
+                  <button type="button" role="tab" :aria-selected="reportView === 'link'" :class="{ active: reportView === 'link' }" @click="reportView = 'link'">按链接</button>
+                </div>
+              </div>
+              <div class="detail-filter">
+                <el-input v-model="ai_channelKeyword" clearable placeholder="搜索渠道名称或来源代码" aria-label="搜索效果明细渠道"></el-input>
+                <span>筛选明细与导出行</span>
+              </div>
+              <div v-if="reportView === 'channel'" class="table-host">
+                <list-table :table-data="visibleChannelReportRows" :table-list="channelReportTableList" :table-option="reportTableOption" :loading="reportLoading">
+                  <template #ai_sourceCode="{ row }"><span class="code-pill">{{ row.ai_sourceCode }}</span></template>
+                  <template #ai_pv="{ row }">{{ formatNumber(row.ai_pv) }}</template>
+                  <template #ai_uid="{ row }">{{ formatNumber(row.ai_uid) }}</template>
+                </list-table>
+              </div>
+              <div v-else class="table-host">
+                <list-table :table-data="visibleLinkReportRows" :table-list="linkReportTableList" :table-option="reportTableOption" :loading="reportLoading">
+                  <template #ai_name="{ row }"><span class="table-primary">{{ row.ai_name }}</span><span class="table-secondary">{{ row.ai_activityId }}</span></template>
+                  <template #ai_pv="{ row }">{{ formatNumber(row.ai_pv) }}</template>
+                  <template #ai_uid="{ row }">{{ formatNumber(row.ai_uid) }}</template>
+                </list-table>
+              </div>
+            </section>
+            <section class="panel uid-section" aria-labelledby="uid-title">
+              <div class="panel-head">
+                <div><div class="panel-title" id="uid-title">单链接 UID 查询</div><div class="panel-subtitle">查看当前活动和日期范围内，一条推广链接的转化用户示例。</div></div>
+                <el-button plain @click="exportUidExcel"><el-icon><Download /></el-icon>导出 UID Excel</el-button>
+              </div>
+              <div class="uid-query-grid">
+                <div class="uid-field">
+                  <label for="uid-link-select">选择推广链接</label>
+                  <el-select id="uid-link-select" v-model="uidLinkId" filterable placeholder="选择当前范围内的链接" style="width:100%">
+                    <el-option v-for="link in linkReportRows" :key="link.ai_id" :value="link.ai_id" :label="link.ai_name + ' · ' + link.ai_channelName + ' / ' + link.ai_mediumName"></el-option>
+                  </el-select>
+                </div>
+                <div class="uid-field">
+                  <label for="uid-url-query">或粘贴埋点链接查询</label>
+                  <el-input id="uid-url-query" v-model="uidUrlQuery" placeholder="粘贴本演示中的完整埋点链接" clearable>
+                    <template #append><el-button @click="lookupUidUrl">查询</el-button></template>
+                  </el-input>
+                </div>
+              </div>
+              <div class="uid-summary" v-if="selectedUidLink">{{ selectedUidLink.ai_name }} · {{ selectedUidLink.ai_channelName }} · 当前展示 {{ uidRows.length }} 条示例记录</div>
+              <div class="uid-toolbar"><el-input v-model="uidKeyword" placeholder="搜索 UID 或设备" clearable style="width:min(280px,100%)"></el-input></div>
+              <div class="table-host">
+                <list-table :table-data="uidRows" :table-list="uidTableList" :table-option="uidTableOption" :loading="reportLoading"></list-table>
+              </div>
+              <div class="table-note">UID 明细仅展示少量虚构记录，不与上方汇总转化数一一对应。</div>
+            </section>
+            <p class="data-footnote">统计说明：该页面仅展示虚构样例。正式部署时需接入访问与转化事件采集，并定义 UID 去重及归因口径。</p>
+          </section>
+        </main>
+      </div>
+
+      <channel-dialog v-model:visible="channelDialogVisible" :channel="editingChannel" :channels="channels" :links="links" @confirm="saveChannel" @close="closeChannelDialog"></channel-dialog>
+      <link-detail-dialog v-model:visible="detailDialogVisible" :link="selectedLink" @close="closeLinkDetail"></link-detail-dialog>
+    </div>
+  </script>
+
+  <script type="text/x-template" id="channel-dialog-template">
+    <el-dialog v-model="innerVisible" :title="channel ? '编辑渠道与位置' : '新增渠道与位置'" width="min(680px, calc(100vw - 28px))" destroy-on-close :close-on-click-modal="false" @closed="resetDialog">
+      <div class="dialog-intro">渠道代码写入 <strong>mxchoice_source</strong>；位置代码写入 <strong>mxchoice_medium</strong>。已被历史链接使用的代码不能修改或删除。</div>
+      <layout-form ref="formRef" v-model="draft" :form-list="formItems" label-width="116px"></layout-form>
+      <div v-if="channelUsed" class="dialog-help">该渠道已有历史链接，来源代码已锁定；渠道名称仍可修改。</div>
+      <div class="position-head"><span>投放位置 <small>至少保留一个启用位置</small></span><el-button size="small" plain @click="addPosition"><el-icon><Plus /></el-icon>添加位置</el-button></div>
+      <div v-for="(position, index) in draft.ai_positions" :key="index" class="position-row">
+        <el-input v-model="position.ai_name" placeholder="位置名称" maxlength="30"></el-input>
+        <el-input v-model="position.ai_code" placeholder="位置代码" maxlength="40" :disabled="positionUsed(position.ai_code)"></el-input>
+        <el-switch v-model="position.ai_active" :aria-label="'位置 ' + (index + 1) + ' 启用状态'"></el-switch>
+        <button type="button" class="remove-position" :aria-label="'删除位置 ' + (index + 1)" :disabled="positionUsed(position.ai_code)" @click="removePosition(index)">×</button>
+      </div>
+      <div class="dialog-help">位置代码仅支持小写字母、数字和下划线，并以字母开头。已被历史链接使用的代码不可修改或删除；停用后不再出现在新链接选项中。</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:17px;color:#60708a;font-size:12px"><el-switch v-model="draft.ai_active"></el-switch><span>启用此渠道</span></div>
+      <template #footer><el-button @click="innerVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="confirm">保存配置</el-button></template>
+    </el-dialog>
+  </script>
+
+  <script type="text/x-template" id="link-detail-dialog-template">
+    <el-dialog v-model="innerVisible" title="埋点链接详情" width="min(600px, calc(100vw - 28px))" destroy-on-close :close-on-click-modal="false" @closed="$emit('close')">
+      <template v-if="link">
+        <div class="detail-grid">
+          <span class="key">链接名称</span><strong class="value">{{ link.ai_name }}</strong>
+          <span class="key">活动 ID</span><strong class="value">{{ link.ai_activityId }}</strong>
+          <span class="key">投放渠道</span><strong class="value">{{ link.ai_channelName }} · {{ link.ai_sourceCode }}</strong>
+          <span class="key">投放位置</span><strong class="value">{{ link.ai_mediumName }} · {{ link.ai_mediumCode }}</strong>
+          <span class="key">创建时间</span><strong class="value">{{ link.ai_createdAt }}</strong>
+          <span class="key">原始网址</span><strong class="value">{{ link.ai_rawUrl }}</strong>
+        </div>
+        <div class="detail-url-title">带埋点的完整链接</div>
+        <div class="detail-url">{{ link.ai_url }}</div>
+      </template>
+      <template #footer><el-button @click="innerVisible = false">关闭</el-button><el-button type="primary" :disabled="!link" @click="copyCurrent"><el-icon><DocumentCopy /></el-icon>复制链接</el-button></template>
+    </el-dialog>
+  </script>
+
+  <script src="https://unpkg.com/vue@3.5.22/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus@2.9.3/dist/index.full.min.js"></script>
+  <script src="https://unpkg.com/@element-plus/icons-vue@2.3.2/dist/index.iife.min.js"></script>
+  <script>window['@element-plus/icons-vue'] = window.ElementPlusIconsVue;</script>
+  <script src="https://unpkg.com/lodash@4.17.21/lodash.min.js"></script>
+  <script src="https://unpkg.com/sortablejs@1.15.6/Sortable.min.js"></script>
+  <script src="./component-fallback.js"></script>
+  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="./preview.js"></script>
+</body>
+</html>
